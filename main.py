@@ -1,43 +1,55 @@
 
 # AI Tender Intelligence Engine
-# Lesson 6: Security Tender Matching
+# Lesson 7: Business Relevance Classification
 
 import json
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 
-
-SECURITY_KEYWORDS = [
-    "security",
+GUARDING_TERMS = [
     "manned guarding",
-    "guarding",
+    "security guarding",
+    "security officer",
+    "security personnel",
     "mobile patrol",
-    "cctv",
-    "access control",
-    "key holding"
+    "key holding",
+    "site security"
+]
+
+TECHNOLOGY_TERMS = [
+    "vehicle telematics",
+    "tachograph",
+    "cctv installation",
+    "camera installation",
+    "software licensing"
 ]
 
 
-def calculate_match_score(title, description):
-    text = (title + " " + description).lower()
+def classify_tender(title, description):
+    text = f"{title} {description}".lower()
 
-    matched_keywords = []
+    guarding_matches = [
+        term for term in GUARDING_TERMS
+        if term in text
+    ]
 
-    for keyword in SECURITY_KEYWORDS:
-        if keyword in text:
-            matched_keywords.append(keyword)
+    technology_matches = [
+        term for term in TECHNOLOGY_TERMS
+        if term in text
+    ]
 
-    score = (
-        len(matched_keywords) / len(SECURITY_KEYWORDS)
-    ) * 100
+    if guarding_matches and not technology_matches:
+        return "GUARDING OPPORTUNITY"
 
-    return round(score, 2), matched_keywords
+    if technology_matches and not guarding_matches:
+        return "TECHNOLOGY / EQUIPMENT"
+
+    if guarding_matches and technology_matches:
+        return "MIXED REQUIREMENTS - REVIEW"
+
+    return "UNCLASSIFIED"
 
 
 def main():
-    print("AI Tender Intelligence Engine")
-    print("Searching for security opportunities...")
-
     url = (
         "https://www.find-tender.service.gov.uk"
         "/api/1.0/ocdsReleasePackages"
@@ -49,52 +61,30 @@ def main():
         headers={"Accept": "application/json"}
     )
 
-    try:
-        with urlopen(request, timeout=30) as response:
-            data = json.load(response)
+    with urlopen(request, timeout=30) as response:
+        data = json.load(response)
 
-        releases = data.get("releases", [])
+    releases = data.get("releases", [])
 
-        print("Tender releases retrieved:", len(releases))
+    print("AI Tender Intelligence Engine")
+    print("Releases analysed:", len(releases))
 
-        matches = []
+    for release in releases:
+        tender = release.get("tender", {})
 
-        for release in releases:
-            tender = release.get("tender", {})
+        title = tender.get("title") or ""
+        description = tender.get("description") or ""
 
-            title = tender.get("title") or ""
-            description = tender.get("description") or ""
-
-            score, keywords = calculate_match_score(
-                title,
-                description
-            )
-
-            if score > 0:
-                matches.append({
-                    "title": title,
-                    "score": score,
-                    "keywords": keywords,
-                    "ocid": release.get("ocid")
-                })
-
-        matches.sort(
-            key=lambda item: item["score"],
-            reverse=True
+        category = classify_tender(
+            title,
+            description
         )
 
-        print("Matching tenders:", len(matches))
-
-        for tender in matches:
-            print("-------------------------")
-            print("Title:", tender["title"])
-            print("Match score:", tender["score"], "%")
-            print("Keywords:", tender["keywords"])
-            print("OCID:", tender["ocid"])
-
-    except (HTTPError, URLError, TimeoutError) as error:
-        print("API connection failed:", error)
-        raise
+        if category != "UNCLASSIFIED":
+            print("---------------------------")
+            print("Title:", title)
+            print("Category:", category)
+            print("OCID:", release.get("ocid"))
 
 
 if __name__ == "__main__":
