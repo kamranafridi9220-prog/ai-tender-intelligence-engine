@@ -1,39 +1,47 @@
 
 # AI Tender Intelligence Engine
-# Lesson 4: Working with tender data
+# Lesson 5: Connecting to a real government API
+
+import json
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+
 
 def main():
-
-    tenders = [
-        {
-            "title": "Security Services Contract",
-            "buyer": "London City Council",
-            "value": 500000,
-            "location": "London"
-        },
-        {
-            "title": "Office Cleaning Contract",
-            "buyer": "UK Facilities Group",
-            "value": 250000,
-            "location": "Manchester"
-        },
-        {
-            "title": "Warehouse Security Contract",
-            "buyer": "National Logistics Ltd",
-            "value": 750000,
-            "location": "Birmingham"
-        }
-    ]
-
     print("AI Tender Intelligence Engine")
-    print("-----------------------------")
+    print("Connecting to UK Find a Tender...")
 
-    for tender in tenders:
-        print("Tender:", tender["title"])
-        print("Buyer:", tender["buyer"])
-        print("Value: £", tender["value"])
-        print("Location:", tender["location"])
-        print("-----------------------------")
+    url = (
+        "https://www.find-tender.service.gov.uk"
+        "/api/1.0/ocdsReleasePackages"
+        "?stages=tender&limit=5"
+    )
+
+    request = Request(
+        url,
+        headers={"Accept": "application/json"}
+    )
+
+    try:
+        with urlopen(request, timeout=30) as response:
+            data = json.load(response)
+
+        releases = data.get("releases", [])
+
+        print("Connection successful!")
+        print("Tender releases received:", len(releases))
+
+        for release in releases:
+            tender = release.get("tender", {})
+
+            print("-------------------------")
+            print("Title:", tender.get("title", "Unknown"))
+            print("OCID:", release.get("ocid", "Unknown"))
+            print("Status:", tender.get("status", "Unknown"))
+
+    except (HTTPError, URLError, TimeoutError) as error:
+        print("API connection failed:", error)
+        raise
 
 
 if __name__ == "__main__":
