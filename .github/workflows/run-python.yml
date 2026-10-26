@@ -21,5 +21,9 @@ jobs:
 
       - name: Execute tender engine
         run: python main.py
+
       - name: Run classifier tests
         run: python -m unittest test_classifier.py -v
+
+      - name: Evaluate classifier accuracy
+        run: python evaluate_classifier.py
