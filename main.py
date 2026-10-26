@@ -1,20 +1,47 @@
 
 # AI Tender Intelligence Engine
-# Lesson 5: Connecting to a real government API
+# Lesson 6: Security Tender Matching
 
 import json
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 
+SECURITY_KEYWORDS = [
+    "security",
+    "manned guarding",
+    "guarding",
+    "mobile patrol",
+    "cctv",
+    "access control",
+    "key holding"
+]
+
+
+def calculate_match_score(title, description):
+    text = (title + " " + description).lower()
+
+    matched_keywords = []
+
+    for keyword in SECURITY_KEYWORDS:
+        if keyword in text:
+            matched_keywords.append(keyword)
+
+    score = (
+        len(matched_keywords) / len(SECURITY_KEYWORDS)
+    ) * 100
+
+    return round(score, 2), matched_keywords
+
+
 def main():
     print("AI Tender Intelligence Engine")
-    print("Connecting to UK Find a Tender...")
+    print("Searching for security opportunities...")
 
     url = (
         "https://www.find-tender.service.gov.uk"
         "/api/1.0/ocdsReleasePackages"
-        "?stages=tender&limit=5"
+        "?stages=tender&limit=100"
     )
 
     request = Request(
@@ -28,16 +55,42 @@ def main():
 
         releases = data.get("releases", [])
 
-        print("Connection successful!")
-        print("Tender releases received:", len(releases))
+        print("Tender releases retrieved:", len(releases))
+
+        matches = []
 
         for release in releases:
             tender = release.get("tender", {})
 
+            title = tender.get("title") or ""
+            description = tender.get("description") or ""
+
+            score, keywords = calculate_match_score(
+                title,
+                description
+            )
+
+            if score > 0:
+                matches.append({
+                    "title": title,
+                    "score": score,
+                    "keywords": keywords,
+                    "ocid": release.get("ocid")
+                })
+
+        matches.sort(
+            key=lambda item: item["score"],
+            reverse=True
+        )
+
+        print("Matching tenders:", len(matches))
+
+        for tender in matches:
             print("-------------------------")
-            print("Title:", tender.get("title", "Unknown"))
-            print("OCID:", release.get("ocid", "Unknown"))
-            print("Status:", tender.get("status", "Unknown"))
+            print("Title:", tender["title"])
+            print("Match score:", tender["score"], "%")
+            print("Keywords:", tender["keywords"])
+            print("OCID:", tender["ocid"])
 
     except (HTTPError, URLError, TimeoutError) as error:
         print("API connection failed:", error)
