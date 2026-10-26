@@ -5,6 +5,7 @@
 import json
 from urllib.request import Request, urlopen
 
+
 GUARDING_TERMS = [
     "manned guarding",
     "security guarding",
@@ -12,7 +13,11 @@ GUARDING_TERMS = [
     "security personnel",
     "mobile patrol",
     "key holding",
-    "site security"
+    "site security",
+    "security services",
+    "community asset security",
+    "building security",
+    "premises security"
 ]
 
 TECHNOLOGY_TERMS = [
