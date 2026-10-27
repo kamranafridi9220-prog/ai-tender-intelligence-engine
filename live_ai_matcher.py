@@ -1,7 +1,6 @@
-"""AEGIS — live UK procurement retrieval, targeted discovery and enrichment.
+"""AEGIS live UK tender retrieval, security discovery and enrichment.
 
-Compatible with existing calls to fetch_tenders(), rank_tenders(),
-fetch_consolidated_record() and enrich_tender().
+Compatible with older callers of fetch_tenders() and Lesson 25 options.
 """
 from __future__ import annotations
 
@@ -11,85 +10,86 @@ import time
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode, urljoin, urlparse, parse_qs
+from urllib.parse import quote, urljoin, urlparse, parse_qs
 from urllib.request import Request, urlopen
 
 BASE_URL = "https://www.find-tender.service.gov.uk"
-API_ENDPOINT = BASE_URL + "/api/1.0/ocdsReleasePackages"
-API_URL = API_ENDPOINT + "?stages=tender&limit=100"
+API_URL = BASE_URL + "/api/1.0/ocdsReleasePackages?stages=tender&limit=100"
 COMPANY_PROFILE = (
-    "Professional security services including manned guarding, security officers, "
-    "mobile patrols, CCTV monitoring, access control, key holding and "
-    "commercial premises protection."
+    "Professional security services: manned guarding, security officers, "
+    "mobile patrols, CCTV monitoring, access control, key holding and premises protection."
 )
 
-# Cache is per Python process; it prevents duplicate requests within one workflow step.
-_RESPONSE_CACHE = {}
-_LAST_REQUEST_AT = 0.0
-MIN_REQUEST_INTERVAL = 1.5
-MAX_RETRY_WAIT = 120
-
+# Discovery keywords are leads only; hybrid_relevance decides actual suitability.
 SECURITY_TERMS = (
-    "manned guarding", "security guard", "security officer", "security personnel",
-    "guarding services", "security services", "mobile patrol", "key holding",
-    "keyholding", "cctv monitoring", "security monitoring", "access control",
-    "alarm response", "concierge security", "site security", "security patrol",
-    "asset security",  # Discovery lead only; classifier must verify actual scope.
+    "security guard", "security officer", "manned guarding", "guarding services",
+    "mobile patrol", "key holding", "keyholding", "cctv monitoring",
+    "security services", "security personnel", "access control",
+    "asset security", "site security", "premises security",
 )
-SECURITY_CPV_PREFIXES = ("7971", "7972")
+SECURITY_CPV_PREFIXES = ("7971",)  # Security services, including guarding.
+_CACHE = {}
+_LAST_REQUEST = 0.0
 
 
-def _retry_after_seconds(header_value):
-    if not header_value:
-        return None
-    try:
-        return max(0.0, float(header_value))
-    except (TypeError, ValueError):
+def _retry_seconds(header, attempt, cap=90):
+    if header:
         try:
-            retry_at = parsedate_to_datetime(header_value)
-            if retry_at.tzinfo is None:
-                retry_at = retry_at.replace(tzinfo=timezone.utc)
-            return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
-        except (TypeError, ValueError, OverflowError):
-            return None
+            seconds = float(header)
+            return max(0.0, min(seconds, cap))
+        except (ValueError, TypeError):
+            try:
+                parsed = parsedate_to_datetime(header)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                seconds = (parsed - datetime.now(timezone.utc)).total_seconds()
+                return max(0.0, min(seconds, cap))
+            except (ValueError, TypeError, OverflowError):
+                pass
+    return min(2 ** attempt + random.uniform(0, 1), cap)
 
 
-def request_json(url, attempts=5, timeout=45, use_cache=True):
-    """Retrieve JSON with throttling, bounded retries and 429 Retry-After support."""
-    global _LAST_REQUEST_AT
-    if use_cache and url in _RESPONSE_CACHE:
-        return _RESPONSE_CACHE[url]
-
-    attempts = max(1, int(attempts))
+def request_json(url, attempts=4, timeout=45, min_interval=1.5):
+    """Request JSON with bounded retries, Retry-After and per-process caching."""
+    global _LAST_REQUEST
+    if url in _CACHE:
+        return _CACHE[url]
     for attempt in range(1, attempts + 1):
-        elapsed = time.monotonic() - _LAST_REQUEST_AT
-        if elapsed < MIN_REQUEST_INTERVAL:
-            time.sleep(MIN_REQUEST_INTERVAL - elapsed)
+        wait = min_interval - (time.monotonic() - _LAST_REQUEST)
+        if wait > 0:
+            time.sleep(wait)
         request = Request(url, headers={
             "Accept": "application/json",
-            "User-Agent": "AEGIS-Tender-Intelligence/1.1 (public procurement research)",
+            "User-Agent": "AEGIS-Tender-Intelligence/1.0",
         })
-        _LAST_REQUEST_AT = time.monotonic()
         try:
+            _LAST_REQUEST = time.monotonic()
             with urlopen(request, timeout=timeout) as response:
                 data = json.load(response)
-            if use_cache:
-                _RESPONSE_CACHE[url] = data
+            _CACHE[url] = data
             return data
         except HTTPError as error:
             retryable = error.code in (429, 500, 502, 503, 504)
             if not retryable or attempt == attempts:
                 raise
-            retry_after = _retry_after_seconds(error.headers.get("Retry-After"))
-            backoff = min(MAX_RETRY_WAIT, (2 ** (attempt - 1)) * 3 + random.uniform(0, 1))
-            delay = min(MAX_RETRY_WAIT, retry_after if retry_after is not None else backoff)
-            print(f"API HTTP {error.code}; retry {attempt}/{attempts} after {delay:.1f}s", flush=True)
+            delay = _retry_seconds(error.headers.get("Retry-After"), attempt)
+            print(f"API HTTP {error.code}; retry {attempt}/{attempts} in {delay:.1f}s", flush=True)
             time.sleep(delay)
-        except (URLError, TimeoutError, OSError) as error:
+        except (URLError, TimeoutError, ConnectionError) as error:
             if attempt == attempts:
                 raise
-            delay = min(MAX_RETRY_WAIT, (2 ** (attempt - 1)) * 2 + random.uniform(0, 1))
-            print(f"API connection error: {error}; retrying in {delay:.1f}s", flush=True)
+            delay = _retry_seconds(None, attempt)
+            print(f"API connection issue: {error}; retrying in {delay:.1f}s", flush=True)
             time.sleep(delay)
-    raise RuntimeError("API request retries exhausted")
+    raise RuntimeError("API request failed")
 
+
+def extract_value(tender):
+    value = tender.get("value") or {}
+    if not isinstance(value, dict):
+        return None, None
+    amount = value.get("amount")
+    try:
+        return (float(amount) if amount is not None else None), value.get("currency")
+    except (TypeError, ValueError):
+        return None, value.get("currency")
