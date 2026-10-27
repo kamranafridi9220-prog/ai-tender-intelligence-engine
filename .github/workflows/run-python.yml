@@ -49,3 +49,5 @@ jobs:
         run: python test_hybrid_relevance.py
       - name: Validate relevance on unseen examples
         run: python validate_relevance.py
+      - name: Validate tender data enrichment
+        run: python live_ai_matcher.py
