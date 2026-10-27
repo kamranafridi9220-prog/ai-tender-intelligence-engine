@@ -51,3 +51,5 @@ jobs:
         run: python validate_relevance.py
       - name: Validate tender data enrichment
         run: python live_ai_matcher.py
+      - name: Inspect procurement record
+        run: python inspect_tender_record.py
