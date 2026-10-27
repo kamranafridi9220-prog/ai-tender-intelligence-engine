@@ -88,6 +88,7 @@ def deadline_label(value):
 
 
 
+
 def value_label(value, currency="GBP"):
     if isinstance(value, dict):
         currency = value.get("currency") or currency
@@ -105,3 +106,4 @@ def value_label(value, currency="GBP"):
         return f"£{number:,.0f}"
 
     return f"{number:,.0f} {currency or ''}".strip()
+
