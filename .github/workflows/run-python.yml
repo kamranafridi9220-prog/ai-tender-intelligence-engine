@@ -41,3 +41,5 @@ jobs:
         run: python eligibility_engine.py
       - name: Run live commercial eligibility assessment
         run: python live_eligibility.py
+      - name: Run improved opportunity discovery
+        run: python opportunity_discovery.py
