@@ -1,7 +1,7 @@
 
 # ============================================================
 # AI TENDER INTELLIGENCE ENGINE
-# Lesson 18 - Hybrid Tender Relevance Engine
+# LESSON 24 - PROFESSIONAL SECURITY RELEVANCE ENGINE
 # ============================================================
 
 from company_tender_matcher import (
@@ -13,39 +13,80 @@ from live_ai_matcher import fetch_tenders
 from main import classify_tender
 
 
-# Specific commercial service indicators.
-# These are intentionally more selective than generic
-# words such as "security", "services" or "contract".
+# ------------------------------------------------------------
+# TARGET PROFESSIONAL SECURITY SERVICES
+# ------------------------------------------------------------
 
-GUARDING_PHRASES = [
-    "manned guarding",
-    "security guarding",
-    "security officer",
-    "security personnel",
-    "mobile patrol",
-    "key holding",
-    "keyholding",
-    "static guarding",
-    "concierge security",
-    "building security",
-    "premises security",
-    "site security",
+TARGET_SERVICE_GROUPS = {
+    "MANNED GUARDING": [
+        "manned guarding",
+        "security guarding",
+        "security guard",
+        "security guards",
+        "security officer",
+        "security officers",
+        "security personnel",
+        "static guarding",
+        "guarding services",
+        "security staffing",
+        "site guarding"
+    ],
+    "MOBILE PATROLS": [
+        "mobile patrol",
+        "mobile security patrol",
+        "security patrol services",
+        "security patrols",
+        "mobile guarding"
+    ],
+    "CCTV SECURITY": [
+        "cctv monitoring",
+        "cctv operator",
+        "cctv operators",
+        "cctv surveillance",
+        "security control room",
+        "remote cctv monitoring",
+        "video surveillance monitoring"
+    ],
+    "ACCESS CONTROL": [
+        "security access control",
+        "access control officers",
+        "security reception",
+        "reception security",
+        "security concierge",
+        "front of house security",
+        "visitor screening",
+        "visitor access management"
+    ],
+    "KEY HOLDING AND RESPONSE": [
+        "key holding",
+        "keyholding",
+        "alarm response",
+        "alarm receiving centre",
+        "security response services"
+    ]
+}
+
+
+# ------------------------------------------------------------
+# SECURITY-RELATED BUT AMBIGUOUS WORK
+# ------------------------------------------------------------
+
+RELATED_PHRASES = [
     "asset security",
-    "guarding services",
-    "security patrol",
-    "reception security",
-    "security reception",
-    "visitor access management",
-    "visitor screening",
-    "security concierge",
-    "front of house security",
-    "access control officers",
-    "reception and access control"
+    "community asset security",
+    "opening and closing",
+    "premises security",
+    "building security",
+    "site security",
+    "security services",
+    "security provision",
+    "security arrangements"
 ]
 
-# Strong indicators of unrelated procurement categories.
-# A tender containing one of these is not automatically
-# rejected if it also has a genuine guarding requirement.
+
+# ------------------------------------------------------------
+# CLEARLY UNRELATED PROCUREMENT
+# ------------------------------------------------------------
 
 UNRELATED_PHRASES = [
     "teleradiology",
@@ -77,40 +118,53 @@ def assess_relevance(tender):
 
     text = f"{title} {description}".lower()
 
-    guarding_matches = find_phrases(
-        text, GUARDING_PHRASES
+    service_matches = {}
+
+    for service_group, phrases in TARGET_SERVICE_GROUPS.items():
+        matches = find_phrases(text, phrases)
+
+        if matches:
+            service_matches[service_group] = matches
+
+    target_matches = list(dict.fromkeys(
+        phrase
+        for matches in service_matches.values()
+        for phrase in matches
+    ))
+
+    related_matches = find_phrases(
+        text,
+        RELATED_PHRASES
     )
 
     unrelated_matches = find_phrases(
-        text, UNRELATED_PHRASES
+        text,
+        UNRELATED_PHRASES
     )
 
     similarity = float(
-        tender.get("similarity", 0)
+        tender.get("similarity") or 0
     )
 
     category = classify_tender(
-        title, description
+        title,
+        description
     )
 
-    # Strong positive service evidence
-    if guarding_matches and not unrelated_matches:
-        decision = "RELEVANT CANDIDATE"
+    if target_matches and not unrelated_matches:
+        decision = "TARGET SECURITY CONTRACT"
 
-    # Possible mixed-scope contract
-    elif guarding_matches and unrelated_matches:
-        decision = "MIXED SCOPE - REVIEW"
+    elif target_matches and unrelated_matches:
+        decision = "SECURITY-RELATED - REVIEW"
 
-    # Strong negative evidence without guarding evidence
-    elif unrelated_matches:
-        decision = "NOT RELEVANT"
+    elif related_matches:
+        decision = "SECURITY-RELATED - REVIEW"
 
-    # Ambiguous contracts require further examination
     elif category in [
         "GUARDING OPPORTUNITY",
         "MIXED REQUIREMENTS - REVIEW"
     ]:
-        decision = "MANUAL REVIEW"
+        decision = "SECURITY-RELATED - REVIEW"
 
     elif similarity >= 40:
         decision = "MANUAL REVIEW"
@@ -122,28 +176,30 @@ def assess_relevance(tender):
         "decision": decision,
         "similarity": similarity,
         "category": category,
-        "guarding_matches": guarding_matches,
-        "unrelated_matches": unrelated_matches
+        "guarding_matches": target_matches,
+        "related_matches": related_matches,
+        "unrelated_matches": unrelated_matches,
+        "service_groups": list(service_matches.keys())
     }
 
 
 def main():
     company = create_company()
 
-    print("=" * 55)
-    print("HYBRID AI TENDER RELEVANCE ENGINE")
-    print("=" * 55)
+    print("=" * 60)
+    print("PROFESSIONAL SECURITY TENDER INTELLIGENCE")
+    print("=" * 60)
+
     print("Company:", company.name)
 
     tenders = fetch_tenders()
 
-    print("Live tenders retrieved:", len(tenders))
-
     ranked = match_company_to_tenders(
-        company, tenders
+        company,
+        tenders
     )
 
-    relevant = []
+    target = []
     review = []
     rejected = []
 
@@ -155,48 +211,40 @@ def main():
             **result
         }
 
-        if result["decision"] == "RELEVANT CANDIDATE":
-            relevant.append(record)
+        if result["decision"] == "TARGET SECURITY CONTRACT":
+            target.append(record)
 
         elif result["decision"] in [
-            "MANUAL REVIEW",
-            "MIXED SCOPE - REVIEW"
+            "SECURITY-RELATED - REVIEW",
+            "MANUAL REVIEW"
         ]:
             review.append(record)
 
         else:
             rejected.append(record)
 
-    print("\nRELEVANT GUARDING CANDIDATES")
-
-    for tender in relevant[:10]:
-        print("-" * 55)
-        print("Title:", tender["title"])
-        print("Similarity:", tender["similarity"], "%")
-        print("Decision:", tender["decision"])
-        print(
-            "Evidence:",
-            tender["guarding_matches"]
-        )
-        print("OCID:", tender.get("ocid"))
-
-    print("\nMANUAL REVIEW CANDIDATES")
-
-    for tender in review[:5]:
-        print("-" * 55)
-        print("Title:", tender["title"])
-        print("Decision:", tender["decision"])
-        print("Similarity:", tender["similarity"], "%")
-        print("OCID:", tender.get("ocid"))
-
-    print("\n" + "=" * 55)
-    print("DISCOVERY SUMMARY")
-    print("=" * 55)
     print("Total analysed:", len(ranked))
-    print("Relevant candidates:", len(relevant))
+    print("Target security contracts:", len(target))
     print("Manual review:", len(review))
     print("Not relevant:", len(rejected))
-    print("=" * 55)
+
+    print("\nTARGET SECURITY OPPORTUNITIES")
+
+    for tender in target[:10]:
+        print("-" * 60)
+        print("Title:", tender.get("title"))
+        print("Similarity:", tender.get("similarity"))
+        print("Service groups:", tender["service_groups"])
+        print("Evidence:", tender["guarding_matches"])
+        print("OCID:", tender.get("ocid"))
+
+    print("\nSECURITY-RELATED REVIEW")
+
+    for tender in review[:10]:
+        print("-" * 60)
+        print("Title:", tender.get("title"))
+        print("Decision:", tender["decision"])
+        print("OCID:", tender.get("ocid"))
 
 
 if __name__ == "__main__":
