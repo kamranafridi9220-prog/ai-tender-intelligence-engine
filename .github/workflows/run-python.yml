@@ -33,3 +33,5 @@ jobs:
 
       - name: Evaluate classifier accuracy
         run: python evaluate_classifier.py
+      - name: Validate company profile engine
+        run: python company_profile.py
