@@ -35,3 +35,5 @@ jobs:
         run: python evaluate_classifier.py
       - name: Validate company profile engine
         run: python company_profile.py
+      - name: Run company-based AI tender matching
+        run: python company_tender_matcher.py
