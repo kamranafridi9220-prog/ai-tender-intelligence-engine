@@ -43,3 +43,5 @@ jobs:
         run: python live_eligibility.py
       - name: Run improved opportunity discovery
         run: python opportunity_discovery.py
+      - name: Run hybrid tender relevance engine
+        run: python hybrid_relevance.py
