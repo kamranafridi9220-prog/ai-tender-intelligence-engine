@@ -26,7 +26,8 @@ jobs:
         run: python semantic_matcher.py
       - name: Execute tender engine
         run: python main.py
-
+      - name: Run live AI tender matching
+        run: python live_ai_matcher.py
       - name: Run classifier tests
         run: python -m unittest test_classifier.py -v
 
