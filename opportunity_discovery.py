@@ -92,5 +92,16 @@ def discover_opportunities(max_records=500, max_pages=5, days_back=90):
         assessment = evaluate_eligibility(company, build_eligibility_input(tender))
         assessment = as_dict(assessment)
 
-        opportunities.append({
-            "title": tender.get("title") or "Untitled notice",
+               opportunities.append({
+            "title": title,
+            "ocid": ocid,
+            "similarity": round(score, 2),
+            "category": relevance.get("category", "UNCLASSIFIED"),
+            "relevance_decision": decision,
+            "assessment": assessment,
+            "value": value,
+            "currency": tender.get("currency"),
+            "locations": locations,
+            "deadline": tender.get("deadline"),
+            "cpv_codes": tender.get("cpv_codes") or [],
+        })
