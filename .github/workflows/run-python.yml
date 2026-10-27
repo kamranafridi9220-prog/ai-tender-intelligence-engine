@@ -3,11 +3,13 @@ name: Run AI Tender Engine
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
   run-engine:
+    name: Run AI Tender Intelligence Engine
     runs-on: ubuntu-latest
 
     steps:
@@ -18,38 +20,67 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          
+
       - name: Install AI dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Validate Python syntax
+        run: |
+          python -m py_compile main.py
+          python -m py_compile live_ai_matcher.py
+          python -m py_compile company_tender_matcher.py
+          python -m py_compile opportunity_discovery.py
+          python -m py_compile hybrid_relevance.py
+          python -m py_compile dashboard.py
+
+      - name: Verify live AI matcher exports
+        run: |
+          python -c "from live_ai_matcher import fetch_tenders; print('SUCCESS: fetch_tenders import verified')"
 
       - name: Run AI semantic matcher
         run: python semantic_matcher.py
+
       - name: Execute tender engine
         run: python main.py
+
       - name: Run live AI tender matching
         run: python live_ai_matcher.py
+
       - name: Run classifier tests
         run: python -m unittest test_classifier.py -v
 
       - name: Evaluate classifier accuracy
         run: python evaluate_classifier.py
+
       - name: Validate company profile engine
         run: python company_profile.py
+
       - name: Run company-based AI tender matching
         run: python company_tender_matcher.py
+
       - name: Run commercial eligibility engine
         run: python eligibility_engine.py
+
       - name: Run live commercial eligibility assessment
         run: python live_eligibility.py
+
       - name: Run improved opportunity discovery
         run: python opportunity_discovery.py
+
       - name: Run hybrid tender relevance engine
         run: python hybrid_relevance.py
+
       - name: Evaluate hybrid relevance performance
         run: python test_hybrid_relevance.py
+
       - name: Validate relevance on unseen examples
         run: python validate_relevance.py
-      - name: Validate tender data enrichment
-      - name: Verify live AI matcher exports
 
+      - name: Validate tender data enrichment
+        run: |
+          python -c "from live_ai_matcher import extract_value, extract_locations, extract_cpv_codes, enrich_tender; print('SUCCESS: Tender enrichment functions available')"
+
+      - name: Inspect procurement record
         run: python inspect_tender_record.py
