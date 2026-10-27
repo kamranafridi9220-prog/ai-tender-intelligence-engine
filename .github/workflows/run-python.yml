@@ -45,3 +45,5 @@ jobs:
         run: python opportunity_discovery.py
       - name: Run hybrid tender relevance engine
         run: python hybrid_relevance.py
+      - name: Evaluate hybrid relevance performance
+        run: python test_hybrid_relevance.py
