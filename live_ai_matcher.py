@@ -93,3 +93,108 @@ def extract_value(tender):
         return (float(amount) if amount is not None else None), value.get("currency")
     except (TypeError, ValueError):
         return None, value.get("currency")
+
+
+def fetch_tenders(
+    max_records=100,
+    security_only=False,
+    max_pages=5,
+    days_back=None,
+):
+    """Fetch tender records from the UK Find a Tender API."""
+    from datetime import datetime, timedelta, timezone
+
+    cutoff = None
+
+    if days_back is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            days=int(days_back)
+        )
+
+    data = request_json(API_URL)
+
+    results = []
+    seen = set()
+
+    for release in data.get("releases") or []:
+        tender = release.get("tender") or {}
+
+        title = tender.get("title") or ""
+        description = tender.get("description") or ""
+
+        if not title.strip():
+            continue
+
+        if cutoff and release.get("date"):
+            try:
+                published = datetime.fromisoformat(
+                    release["date"].replace("Z", "+00:00")
+                )
+
+                if published.tzinfo is None:
+                    published = published.replace(
+                        tzinfo=timezone.utc
+                    )
+
+                if published < cutoff:
+                    continue
+
+            except (TypeError, ValueError):
+                pass
+
+        ocid = release.get("ocid") or "Unknown"
+        identity = ocid if ocid != "Unknown" else title.lower()
+
+        if identity in seen:
+            continue
+
+        value, currency = extract_value(tender)
+
+        record = {
+            "title": title,
+            "description": description,
+            "service": description or None,
+            "ocid": ocid,
+            "value": value,
+            "currency": currency,
+            "locations": extract_locations(tender),
+            "location": None,
+            "cpv_codes": extract_cpv_codes(tender),
+            "deadline": (
+                tender.get("tenderPeriod") or {}
+            ).get("endDate"),
+            "certifications": None,
+        }
+
+        if security_only:
+            text = f"{title} {description}".lower()
+
+            terms = (
+                "manned guarding",
+                "security guard",
+                "security officer",
+                "security services",
+                "mobile patrol",
+                "key holding",
+                "keyholding",
+                "cctv monitoring",
+                "access control",
+                "asset security",
+            )
+
+            if not any(term in text for term in terms):
+                continue
+
+        seen.add(identity)
+        results.append(record)
+
+        if len(results) >= max_records:
+            break
+
+    print(
+        f"Discovery: 1 page(s), "
+        f"{len(results)} unique tenders, "
+        f"security_only={security_only}"
+    )
+
+    return results
