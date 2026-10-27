@@ -32,7 +32,7 @@ GUARDING_PHRASES = [
     "site security",
     "asset security",
     "guarding services",
-    "security patrol"
+    "security patrol",
     "reception security",
     "security reception",
     "visitor access management",
