@@ -92,7 +92,7 @@ def discover_opportunities(max_records=500, max_pages=5, days_back=90):
         assessment = evaluate_eligibility(company, build_eligibility_input(tender))
         assessment = as_dict(assessment)
 
-               opportunities.append({
+        opportunities.append({
             "title": title,
             "ocid": ocid,
             "similarity": round(score, 2),
