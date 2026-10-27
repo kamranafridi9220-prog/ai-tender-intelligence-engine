@@ -50,6 +50,10 @@ jobs:
       - name: Validate relevance on unseen examples
         run: python validate_relevance.py
       - name: Validate tender data enrichment
+      - name: Verify live AI matcher exports
+  run: |
+    python -m py_compile live_ai_matcher.py
+    python -c "import live_ai_matcher; print('Loaded from:', live_ai_matcher.__file__); print('fetch_tenders available:', hasattr(live_ai_matcher, 'fetch_tenders')); print('Available functions:', [name for name in dir(live_ai_matcher) if not name.startswith('_')])"
         run: python live_ai_matcher.py
       - name: Inspect procurement record
         run: python inspect_tender_record.py
