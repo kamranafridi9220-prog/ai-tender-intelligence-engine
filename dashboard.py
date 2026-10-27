@@ -1,7 +1,7 @@
 
 # ============================================================
 # AI TENDER INTELLIGENCE ENGINE
-# LESSON 21 - COMMERCIAL INTELLIGENCE DASHBOARD
+# LESSON 23 - CONSOLIDATED COMMERCIAL INTELLIGENCE DASHBOARD
 # ============================================================
 
 from datetime import datetime, timezone
@@ -13,7 +13,10 @@ from company_tender_matcher import (
     create_company,
     match_company_to_tenders
 )
-from live_ai_matcher import fetch_tenders
+from live_ai_matcher import (
+    fetch_tenders,
+    enrich_tender
+)
 from hybrid_relevance import assess_relevance
 from eligibility_engine import evaluate_eligibility
 
@@ -30,7 +33,7 @@ st.set_page_config(
 
 
 # ------------------------------------------------------------
-# DATA LOADING
+# CACHED DATA
 # ------------------------------------------------------------
 
 @st.cache_resource
@@ -43,11 +46,16 @@ def load_tenders():
     return fetch_tenders()
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_enriched_tender(ocid, tender):
+    return enrich_tender(tender)
+
+
 company = load_company()
 
 
 # ------------------------------------------------------------
-# HELPER FUNCTIONS
+# HELPERS
 # ------------------------------------------------------------
 
 def format_value(value, currency):
@@ -59,11 +67,13 @@ def format_value(value, currency):
     except (TypeError, ValueError):
         return "Not available"
 
-    symbol = {
+    symbols = {
         "GBP": "£",
         "USD": "$",
         "EUR": "€"
-    }.get(currency)
+    }
+
+    symbol = symbols.get(currency)
 
     if symbol:
         return f"{symbol}{amount:,.0f}"
@@ -74,7 +84,7 @@ def format_value(value, currency):
     return f"{amount:,.0f} (currency unverified)"
 
 
-def parse_deadline(value):
+def parse_date(value):
     if not value:
         return None
 
@@ -84,7 +94,9 @@ def parse_deadline(value):
         )
 
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
+            parsed = parsed.replace(
+                tzinfo=timezone.utc
+            )
 
         return parsed.astimezone(timezone.utc)
 
@@ -92,35 +104,55 @@ def parse_deadline(value):
         return None
 
 
-def deadline_information(value):
-    parsed = parse_deadline(value)
+def format_date(value):
+    parsed = parse_date(value)
 
     if parsed is None:
-        return "Not available", "UNKNOWN"
+        return "Not available"
+
+    return parsed.strftime(
+        "%d %b %Y, %H:%M UTC"
+    )
+
+
+def deadline_status(value):
+    parsed = parse_date(value)
+
+    if parsed is None:
+        return "UNKNOWN"
 
     remaining = (
         parsed - datetime.now(timezone.utc)
     ).total_seconds() / 86400
 
-    formatted = parsed.strftime(
-        "%d %b %Y, %H:%M UTC"
-    )
-
     if remaining < 0:
-        status = "DEADLINE PASSED"
-    elif remaining < 7:
-        status = "LESS THAN 7 DAYS"
-    else:
-        status = "OPEN DEADLINE"
+        return "DEADLINE PASSED"
 
-    return formatted, status
+    if remaining < 7:
+        return "CLOSING SOON"
+
+    return "DEADLINE UPCOMING"
 
 
-def prepare_eligibility_input(tender):
-    # Only use fields available from the API.
-    # Do not invent missing information.
+def unique_locations(tender):
+    locations = tender.get("locations") or []
 
-    return {
+    if isinstance(locations, str):
+        locations = [locations]
+
+    return list(dict.fromkeys(
+        str(location)
+        for location in locations
+        if location
+    ))
+
+
+def assess_commercial_fit(company, tender):
+    # Keep the original eligibility engine,
+    # but avoid treating incomplete API data
+    # as confirmed compliance.
+
+    eligibility_input = {
         "title": tender.get("title", ""),
         "service": tender.get("service") or "",
         "location": tender.get("location"),
@@ -128,27 +160,52 @@ def prepare_eligibility_input(tender):
         "certifications": tender.get("certifications")
     }
 
-
-def assess_commercial_fit(company, tender):
-    eligibility_input = prepare_eligibility_input(tender)
-
     result = evaluate_eligibility(
         company,
         eligibility_input
     )
 
-    # A description is preliminary service evidence,
-    # not confirmation of all contract requirements.
-    service_text = eligibility_input["service"]
+    # The hybrid relevance engine provides
+    # evidence of potential service compatibility.
+    # This does not confirm all tender requirements.
 
-    if not service_text:
+    guarding_evidence = (
+        tender.get("guarding_matches") or []
+    )
+
+    if guarding_evidence:
         result["service_match"] = None
+
+        result["review_items"].append(
+            "Security service evidence identified; "
+            "verify detailed scope and requirements"
+        )
+
+        result["reasons"] = [
+            reason
+            for reason in result["reasons"]
+            if reason != "Service compatibility not confirmed"
+        ]
+
+    elif not eligibility_input["service"]:
+        result["service_match"] = None
+
         result["review_items"].append(
             "Service requirements not verified"
         )
 
-    # Prevent missing information being treated as
-    # confirmed commercial eligibility.
+    # Do not treat broad UK region codes as
+    # confirmed delivery locations.
+
+    locations = unique_locations(tender)
+
+    if locations and not tender.get("location"):
+        result["location_status"] = "REVIEW"
+
+        result["review_items"].append(
+            "Regional coverage requires verification"
+        )
+
     statuses = [
         result["location_status"],
         result["value_status"],
@@ -160,26 +217,29 @@ def assess_commercial_fit(company, tender):
 
     elif (
         "REVIEW" in statuses
-        or not result["service_match"]
+        or result["service_match"] is not True
     ):
         result["decision"] = "MANUAL REVIEW REQUIRED"
 
     else:
         result["decision"] = "PRELIMINARY MATCH"
 
+    result["review_items"] = list(
+        dict.fromkeys(result["review_items"])
+    )
+
     return result
 
 
-def bid_recommendation(relevance, eligibility, deadline):
-    # This is a preliminary screening recommendation,
-    # not a final tender eligibility determination.
+def bid_recommendation(tender, eligibility):
+    relevance = tender.get("decision")
 
     if relevance == "NOT RELEVANT":
         return "NO-BID CANDIDATE"
 
-    _, deadline_status = deadline_information(deadline)
-
-    if deadline_status == "DEADLINE PASSED":
+    if deadline_status(
+        tender.get("deadline")
+    ) == "DEADLINE PASSED":
         return "DEADLINE PASSED - VERIFY STATUS"
 
     if relevance in [
@@ -226,7 +286,7 @@ st.sidebar.write(
 st.sidebar.divider()
 
 st.sidebar.caption(
-    "AI-powered UK procurement intelligence"
+    "UK Public Procurement Decision Intelligence"
 )
 
 
@@ -245,7 +305,7 @@ st.subheader("Live Tender Discovery")
 
 
 # ------------------------------------------------------------
-# LIVE DISCOVERY
+# DISCOVERY PIPELINE
 # ------------------------------------------------------------
 
 if st.button(
@@ -254,7 +314,7 @@ if st.button(
 ):
     try:
         with st.spinner(
-            "Discovering and analysing UK tenders..."
+            "Retrieving and analysing UK tenders..."
         ):
 
             tenders = load_tenders()
@@ -267,12 +327,40 @@ if st.button(
             results = []
 
             for tender in ranked:
+
                 relevance = assess_relevance(tender)
 
                 record = {
                     **tender,
                     **relevance
                 }
+
+                # Fetch detailed records only for
+                # shortlisted tenders.
+
+                if relevance["decision"] in [
+                    "RELEVANT CANDIDATE",
+                    "MANUAL REVIEW",
+                    "MIXED SCOPE - REVIEW"
+                ]:
+
+                    try:
+                        record = load_enriched_tender(
+                            str(record.get("ocid", "")),
+                            record
+                        )
+
+                        # Preserve original classification.
+                        record.update(relevance)
+
+                    except Exception as error:
+                        record["enrichment_status"] = "FAILED"
+                        record["enrichment_error"] = str(error)
+
+                else:
+                    record["enrichment_status"] = (
+                        "NOT REQUESTED"
+                    )
 
                 eligibility = assess_commercial_fit(
                     company,
@@ -283,9 +371,8 @@ if st.button(
 
                 record["bid_recommendation"] = (
                     bid_recommendation(
-                        relevance["decision"],
-                        eligibility,
-                        record.get("deadline")
+                        record,
+                        eligibility
                     )
                 )
 
@@ -294,13 +381,13 @@ if st.button(
             st.session_state["tender_results"] = results
 
         st.success(
-            "Tender discovery and commercial "
-            "intelligence assessment completed."
+            "Tender discovery and consolidated "
+            "commercial intelligence completed."
         )
 
     except Exception as error:
         st.error(
-            f"Tender discovery failed: {error}"
+            f"Discovery failed: {error}"
         )
 
 
@@ -313,12 +400,14 @@ if "tender_results" in st.session_state:
     results = st.session_state["tender_results"]
 
     relevant = [
-        tender for tender in results
+        tender
+        for tender in results
         if tender["decision"] == "RELEVANT CANDIDATE"
     ]
 
     review = [
-        tender for tender in results
+        tender
+        for tender in results
         if tender["decision"] in [
             "MANUAL REVIEW",
             "MIXED SCOPE - REVIEW"
@@ -326,23 +415,41 @@ if "tender_results" in st.session_state:
     ]
 
     rejected = [
-        tender for tender in results
+        tender
+        for tender in results
         if tender["decision"] == "NOT RELEVANT"
     ]
 
     st.divider()
 
-    st.subheader("Commercial Intelligence Overview")
+    st.subheader(
+        "Commercial Intelligence Overview"
+    )
 
     c1, c2, c3, c4 = st.columns(4)
 
-    c1.metric("Tenders Analysed", len(results))
-    c2.metric("Relevant Candidates", len(relevant))
-    c3.metric("Manual Review", len(review))
-    c4.metric("Not Relevant", len(rejected))
+    c1.metric(
+        "Tenders Analysed",
+        len(results)
+    )
+
+    c2.metric(
+        "Relevant Candidates",
+        len(relevant)
+    )
+
+    c3.metric(
+        "Manual Review",
+        len(review)
+    )
+
+    c4.metric(
+        "Not Relevant",
+        len(rejected)
+    )
 
     # --------------------------------------------------------
-    # FILTERS
+    # FILTER
     # --------------------------------------------------------
 
     st.divider()
@@ -372,7 +479,7 @@ if "tender_results" in st.session_state:
         filtered = results
 
     # --------------------------------------------------------
-    # COMMERCIAL DATA TABLE
+    # OPPORTUNITY TABLE
     # --------------------------------------------------------
 
     if filtered:
@@ -381,31 +488,33 @@ if "tender_results" in st.session_state:
 
         for tender in filtered:
 
-            deadline, deadline_status = (
-                deadline_information(
-                    tender.get("deadline")
-                )
-            )
-
             rows.append({
                 "Tender": tender.get("title", ""),
                 "Relevance": tender["decision"],
-                "AI Similarity (%)": tender["similarity"],
+                "Similarity (%)": tender["similarity"],
                 "Contract Value": format_value(
                     tender.get("value"),
                     tender.get("currency")
                 ),
-                "Location": ", ".join(
-                    tender.get("locations") or []
+                "Locations": ", ".join(
+                    unique_locations(tender)
                 ) or "Not available",
-                "Deadline": deadline,
-                "Deadline Status": deadline_status,
+                "Deadline": format_date(
+                    tender.get("deadline")
+                ),
+                "Deadline Status": deadline_status(
+                    tender.get("deadline")
+                ),
                 "CPV Codes": ", ".join(
                     tender.get("cpv_codes") or []
                 ) or "Not available",
                 "Bid Screening": tender[
                     "bid_recommendation"
                 ],
+                "Enrichment": tender.get(
+                    "enrichment_status",
+                    "NOT REQUESTED"
+                ),
                 "OCID": tender.get("ocid", "")
             })
 
@@ -434,27 +543,28 @@ if "tender_results" in st.session_state:
         )
 
     # --------------------------------------------------------
-    # DETAILED ASSESSMENT
+    # DETAILED OPPORTUNITY ASSESSMENT
     # --------------------------------------------------------
 
     st.divider()
 
-    st.subheader("Commercial Opportunity Assessment")
+    st.subheader(
+        "Commercial Opportunity Assessment"
+    )
 
     candidates = relevant + review
 
     if candidates:
 
         selected_index = st.selectbox(
-            "Select a tender for detailed assessment",
+            "Select a tender",
             range(len(candidates)),
             format_func=lambda i: candidates[i].get(
-                "title", "Untitled"
+                "title", "Untitled tender"
             )
         )
 
         tender = candidates[selected_index]
-
         eligibility = tender["eligibility"]
 
         st.write(
@@ -463,7 +573,7 @@ if "tender_results" in st.session_state:
         )
 
         st.write(
-            "**Relevance Decision:**",
+            "**Relevance:**",
             tender["decision"]
         )
 
@@ -475,15 +585,8 @@ if "tender_results" in st.session_state:
         st.write(
             "**Positive Evidence:**",
             ", ".join(
-                tender["guarding_matches"]
+                tender.get("guarding_matches") or []
             ) or "None identified"
-        )
-
-        st.write(
-            "**CPV Classifications:**",
-            ", ".join(
-                tender.get("cpv_codes") or []
-            ) or "Not available"
         )
 
         st.write(
@@ -495,35 +598,112 @@ if "tender_results" in st.session_state:
         )
 
         st.write(
-            "**Delivery Locations:**",
+            "**Delivery Regions:**",
             ", ".join(
-                tender.get("locations") or []
+                unique_locations(tender)
             ) or "Not available"
         )
 
-        deadline, deadline_status = (
-            deadline_information(
+        st.write(
+            "**CPV Codes:**",
+            ", ".join(
+                tender.get("cpv_codes") or []
+            ) or "Not available"
+        )
+
+        st.write(
+            "**Submission Deadline:**",
+            format_date(
                 tender.get("deadline")
             )
         )
 
         st.write(
-            "**Submission Deadline:**",
-            deadline
-        )
-
-        st.write(
             "**Deadline Status:**",
-            deadline_status
+            deadline_status(
+                tender.get("deadline")
+            )
         )
 
         st.write(
             "**OCID:**",
-            tender.get("ocid", "")
+            tender.get("ocid")
         )
 
+        st.write(
+            "**Enrichment Status:**",
+            tender.get(
+                "enrichment_status",
+                "NOT REQUESTED"
+            )
+        )
+
+        if tender.get("enrichment_error"):
+            st.warning(
+                tender["enrichment_error"]
+            )
+
         # ----------------------------------------------------
-        # ELIGIBILITY
+        # DETAILED LOT REQUIREMENTS
+        # ----------------------------------------------------
+
+        lot_descriptions = (
+            tender.get("lot_descriptions") or []
+        )
+
+        if lot_descriptions:
+
+            st.divider()
+
+            st.subheader(
+                "Detailed Contract Requirements"
+            )
+
+            for index, description in enumerate(
+                lot_descriptions,
+                start=1
+            ):
+
+                with st.expander(
+                    f"Lot {index} - Requirements"
+                ):
+                    st.write(description)
+
+        # ----------------------------------------------------
+        # CONTRACT PERIOD
+        # ----------------------------------------------------
+
+        contract_periods = (
+            tender.get("contract_periods") or []
+        )
+
+        if contract_periods:
+
+            st.divider()
+
+            st.subheader("Contract Duration")
+
+            for index, period in enumerate(
+                contract_periods,
+                start=1
+            ):
+
+                st.write(
+                    f"**Lot {index} Start:**",
+                    format_date(
+                        period.get("startDate")
+                    )
+                )
+
+                st.write(
+                    f"**Lot {index} End:**",
+                    format_date(
+                        period.get("endDate")
+                    )
+                )
+
+        # ----------------------------------------------------
+        # COMMERCIAL ELIGIBILITY
         # ----------------------------------------------------
 
         st.divider()
@@ -531,7 +711,7 @@ if "tender_results" in st.session_state:
         st.subheader("Commercial Eligibility")
 
         st.write(
-            "**Preliminary Eligibility:**",
+            "**Preliminary Decision:**",
             eligibility["decision"]
         )
 
@@ -539,19 +719,22 @@ if "tender_results" in st.session_state:
 
         service_status = (
             "PASS"
-            if eligibility["service_match"]
+            if eligibility["service_match"] is True
             else "REVIEW"
         )
 
         e1.metric("Service", service_status)
+
         e2.metric(
             "Location",
             eligibility["location_status"]
         )
+
         e3.metric(
             "Contract Value",
             eligibility["value_status"]
         )
+
         e4.metric(
             "Certifications",
             eligibility["certification_status"]
@@ -572,12 +755,14 @@ if "tender_results" in st.session_state:
                 st.write("-", item)
 
         # ----------------------------------------------------
-        # BID / NO-BID SCREENING
+        # BID / NO-BID
         # ----------------------------------------------------
 
         st.divider()
 
-        st.subheader("AI Bid / No-Bid Screening")
+        st.subheader(
+            "AI Bid / No-Bid Screening"
+        )
 
         st.write(
             "**Recommendation:**",
@@ -585,21 +770,22 @@ if "tender_results" in st.session_state:
         )
 
         st.info(
-            "This recommendation is preliminary. "
-            "AI relevance does not establish legal, "
-            "technical or commercial eligibility. "
-            "Verify the official procurement documents "
-            "before making a final bidding decision."
+            "This is a preliminary screening result. "
+            "Tender relevance does not establish "
+            "legal, technical or commercial eligibility. "
+            "Review the official procurement documents "
+            "before deciding whether to bid."
         )
 
     else:
         st.info(
-            "No relevant or manual-review tenders "
-            "are available for detailed assessment."
+            "No shortlisted tenders available "
+            "for detailed assessment."
         )
 
 else:
+
     st.info(
         "Click Discover Opportunities to analyse "
-        "live UK procurement tenders."
+        "live UK public procurement tenders."
     )
