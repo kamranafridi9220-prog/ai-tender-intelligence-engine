@@ -87,10 +87,21 @@ def deadline_label(value):
     return "Open (based on deadline)"
 
 
+
 def value_label(value, currency="GBP"):
     if isinstance(value, dict):
         currency = value.get("currency") or currency
         value = value.get("amount")
+
+    if value is None:
+        return "Not published"
+
     try:
-        if value is None:
-            return "Not published"
+        number = float(value)
+    except (TypeError, ValueError):
+        return "Not published"
+
+    if currency == "GBP":
+        return f"£{number:,.0f}"
+
+    return f"{number:,.0f} {currency or ''}".strip()
