@@ -87,10 +87,20 @@ def fmt_list(value, empty="Not published"):
     return ", ".join(dict.fromkeys(values)) if values else empty
 
 
+
 def dt(value):
     if not value:
         return None
+
     try:
-        date = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        return date.replace(tzinfo=timezone.utc) if date.tzinfo is None else date.astimezone(timezone.utc)
+        date = datetime.fromisoformat(
+            str(value).replace("Z", "+00:00")
+        )
+
+        if date.tzinfo is None:
+            return date.replace(tzinfo=timezone.utc)
+
+        return date.astimezone(timezone.utc)
+
     except (ValueError, TypeError):
+        return None
