@@ -33,6 +33,14 @@ GUARDING_PHRASES = [
     "asset security",
     "guarding services",
     "security patrol"
+    "reception security",
+    "security reception",
+    "visitor access management",
+    "visitor screening",
+    "security concierge",
+    "front of house security",
+    "access control officers",
+    "reception and access control"
 ]
 
 # Strong indicators of unrelated procurement categories.
