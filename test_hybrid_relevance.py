@@ -2,21 +2,28 @@
 """
 AI TENDER INTELLIGENCE ENGINE
 
-Lesson 19:
-Hybrid Relevance Classification Evaluation
+Lesson 24:
+Professional Security Relevance Evaluation
 
-Measures:
-- Precision
-- Recall
-- F1 Score
-- Accuracy
+Evaluates:
+- Target security contract detection
+- Security-related manual review
+- Unrelated tender rejection
+- Precision, Recall, F1 and Accuracy
 
-Evaluation uses synthetic labelled examples.
+IMPORTANT:
+These are synthetic tests, not real-world
+procurement accuracy measurements.
 """
 
 import unittest
 
 from hybrid_relevance import assess_relevance
+
+
+TARGET = "TARGET SECURITY CONTRACT"
+REVIEW = "SECURITY-RELATED - REVIEW"
+UNRELATED = "NOT RELEVANT"
 
 
 # --------------------------------------------------
@@ -43,22 +50,60 @@ TEST_TENDERS = [
         "expected": 1
     },
     {
-        "title": "Community Asset Security",
-        "description": "Protection of community buildings",
-        "similarity": 35,
-        "expected": 1
-    },
-    {
         "title": "Integrated Guarding and CCTV",
-        "description": "Manned guarding and CCTV installation",
+        "description": "Manned guarding and CCTV monitoring",
         "similarity": 55,
         "expected": 1
     },
     {
         "title": "Reception and Access Control",
-        "description": "Reception staff and visitor access management",
+        "description": (
+            "Security reception and visitor access management"
+        ),
         "similarity": 42,
         "expected": 1
+    },
+    {
+        "title": "CCTV Monitoring Services",
+        "description": (
+            "24-hour CCTV operators and remote CCTV monitoring"
+        ),
+        "similarity": 58,
+        "expected": 1
+    },
+    {
+        "title": "Security Officer Provision",
+        "description": (
+            "Security officers required for commercial buildings"
+        ),
+        "similarity": 67,
+        "expected": 1
+    },
+    {
+        "title": "Key Holding and Alarm Response",
+        "description": (
+            "Key holding and alarm response services"
+        ),
+        "similarity": 61,
+        "expected": 1
+    },
+    {
+        "title": "Community Asset Security",
+        "description": (
+            "Opening and closing community sports facilities"
+        ),
+        "similarity": 35,
+        "expected": 0,
+        "expected_decision": REVIEW
+    },
+    {
+        "title": "Walton Community Asset Security",
+        "description": (
+            "Opening and closing sports grounds and car parks"
+        ),
+        "similarity": 34.94,
+        "expected": 0,
+        "expected_decision": REVIEW
     },
     {
         "title": "Banking and Merchant Services",
@@ -80,7 +125,9 @@ TEST_TENDERS = [
     },
     {
         "title": "Vehicle Telematics",
-        "description": "Tracking systems and tachograph installation",
+        "description": (
+            "Tracking systems and tachograph installation"
+        ),
         "similarity": 30,
         "expected": 0
     },
@@ -92,33 +139,38 @@ TEST_TENDERS = [
     },
     {
         "title": "Fire Suppression Maintenance",
-        "description": "Maintenance of fire suppression systems",
+        "description": (
+            "Maintenance of fire suppression systems"
+        ),
         "similarity": 31,
         "expected": 0
     }
 ]
 
 
+# --------------------------------------------------
+# PREDICTION
+# --------------------------------------------------
+
 def predict_relevance(tender):
     result = assess_relevance(tender)
 
-    # Only clearly relevant candidates count as
-    # positive automatic shortlist decisions.
-    # Manual review is not a confirmed positive.
     return int(
-        result["decision"] == "RELEVANT CANDIDATE"
+        result["decision"] == TARGET
     )
 
 
+# --------------------------------------------------
+# PERFORMANCE METRICS
+# --------------------------------------------------
+
 def calculate_metrics(dataset):
-    tp = 0
-    fp = 0
-    tn = 0
-    fn = 0
+    tp = fp = tn = fn = 0
 
     for tender in dataset:
         expected = tender["expected"]
-        predicted = predict_relevance(tender)
+        result = assess_relevance(tender)
+        predicted = int(result["decision"] == TARGET)
 
         if expected == 1 and predicted == 1:
             tp += 1
@@ -132,9 +184,7 @@ def calculate_metrics(dataset):
         elif expected == 1 and predicted == 0:
             fn += 1
 
-        result = assess_relevance(tender)
-
-        print("-" * 50)
+        print("-" * 55)
         print("Tender:", tender["title"])
         print("Expected:", expected)
         print("Predicted:", predicted)
@@ -142,17 +192,17 @@ def calculate_metrics(dataset):
 
     precision = (
         tp / (tp + fp)
-        if (tp + fp) else 0
+        if tp + fp else 0
     )
 
     recall = (
         tp / (tp + fn)
-        if (tp + fn) else 0
+        if tp + fn else 0
     )
 
     f1 = (
         2 * precision * recall / (precision + recall)
-        if (precision + recall) else 0
+        if precision + recall else 0
     )
 
     accuracy = (
@@ -172,39 +222,69 @@ def calculate_metrics(dataset):
     }
 
 
-class TestHybridRelevance(unittest.TestCase):
+# --------------------------------------------------
+# UNIT TESTS
+# --------------------------------------------------
+
+class TestProfessionalSecurityRelevance(unittest.TestCase):
+
+    def test_target_contracts(self):
+        for tender in TEST_TENDERS:
+            if tender["expected"] == 1:
+                with self.subTest(title=tender["title"]):
+                    self.assertEqual(
+                        assess_relevance(tender)["decision"],
+                        TARGET
+                    )
+
+    def test_walton_style_contracts_require_review(self):
+        for tender in TEST_TENDERS:
+            if tender.get("expected_decision") == REVIEW:
+                with self.subTest(title=tender["title"]):
+                    self.assertEqual(
+                        assess_relevance(tender)["decision"],
+                        REVIEW
+                    )
+
+    def test_unrelated_contracts_not_shortlisted(self):
+        for tender in TEST_TENDERS:
+            if tender["expected"] == 0:
+                with self.subTest(title=tender["title"]):
+                    self.assertNotEqual(
+                        assess_relevance(tender)["decision"],
+                        TARGET
+                    )
 
     def test_metric_calculation(self):
         metrics = calculate_metrics(TEST_TENDERS)
 
-        self.assertEqual(
-            metrics["TP"] + metrics["FP"]
-            + metrics["TN"] + metrics["FN"],
-            len(TEST_TENDERS)
+        total = (
+            metrics["TP"]
+            + metrics["FP"]
+            + metrics["TN"]
+            + metrics["FN"]
         )
 
-        for metric in [
+        self.assertEqual(total, len(TEST_TENDERS))
+
+        for name in [
             "precision",
             "recall",
             "f1",
             "accuracy"
         ]:
-            self.assertGreaterEqual(metrics[metric], 0)
-            self.assertLessEqual(metrics[metric], 1)
+            self.assertGreaterEqual(metrics[name], 0)
+            self.assertLessEqual(metrics[name], 1)
 
-    def test_known_guarding_contract(self):
-        tender = TEST_TENDERS[0]
-        self.assertEqual(predict_relevance(tender), 1)
 
-    def test_known_unrelated_contract(self):
-        tender = TEST_TENDERS[6]
-        self.assertEqual(predict_relevance(tender), 0)
-
+# --------------------------------------------------
+# MAIN
+# --------------------------------------------------
 
 if __name__ == "__main__":
-    print("=" * 55)
-    print("HYBRID TENDER CLASSIFICATION EVALUATION")
-    print("=" * 55)
+    print("=" * 60)
+    print("PROFESSIONAL SECURITY RELEVANCE EVALUATION")
+    print("=" * 60)
 
     metrics = calculate_metrics(TEST_TENDERS)
 
