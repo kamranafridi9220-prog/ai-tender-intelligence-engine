@@ -37,3 +37,5 @@ jobs:
         run: python company_profile.py
       - name: Run company-based AI tender matching
         run: python company_tender_matcher.py
+      - name: Run commercial eligibility engine
+        run: python eligibility_engine.py
