@@ -47,3 +47,5 @@ jobs:
         run: python hybrid_relevance.py
       - name: Evaluate hybrid relevance performance
         run: python test_hybrid_relevance.py
+      - name: Validate relevance on unseen examples
+        run: python validate_relevance.py
