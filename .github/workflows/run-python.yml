@@ -39,3 +39,5 @@ jobs:
         run: python company_tender_matcher.py
       - name: Run commercial eligibility engine
         run: python eligibility_engine.py
+      - name: Run live commercial eligibility assessment
+        run: python live_eligibility.py
