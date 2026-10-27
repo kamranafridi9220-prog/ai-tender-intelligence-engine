@@ -1,10 +1,19 @@
 
-# Lesson 12: Live AI Tender Matching
+# ============================================================
+# AI TENDER INTELLIGENCE ENGINE
+# Live Tender Data Enrichment
+# ============================================================
 
 import json
-from urllib.request import Request, urlopen
+import time
 
-from sentence_transformers import SentenceTransformer, util
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+
+from sentence_transformers import (
+    SentenceTransformer,
+    util
+)
 
 
 API_URL = (
@@ -21,18 +30,133 @@ COMPANY_PROFILE = (
 )
 
 
-def fetch_tenders():
+# ------------------------------------------------------------
+# SAFE API REQUEST
+# ------------------------------------------------------------
+
+def request_tender_data():
+
     request = Request(
         API_URL,
-        headers={"Accept": "application/json"}
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "AI-Tender-Intelligence/1.0"
+        }
     )
 
-    with urlopen(request, timeout=30) as response:
-        data = json.load(response)
+    for attempt in range(1, 4):
+
+        try:
+            print(f"API request attempt {attempt}/3")
+
+            with urlopen(request, timeout=60) as response:
+                return json.load(response)
+
+        except (
+            HTTPError,
+            URLError,
+            TimeoutError
+        ) as error:
+
+            print("API error:", error)
+
+            if attempt == 3:
+                raise
+
+            time.sleep(attempt * 5)
+
+
+# ------------------------------------------------------------
+# VALUE EXTRACTION
+# ------------------------------------------------------------
+
+def extract_value(tender):
+
+    value = tender.get("value") or {}
+
+    amount = value.get("amount")
+    currency = value.get("currency")
+
+    if amount is None:
+        return None, currency
+
+    try:
+        amount = float(amount)
+    except (TypeError, ValueError):
+        return None, currency
+
+    return amount, currency
+
+
+# ------------------------------------------------------------
+# LOCATION EXTRACTION
+# ------------------------------------------------------------
+
+def extract_locations(tender):
+
+    locations = []
+
+    for item in tender.get("items") or []:
+
+        for delivery in item.get(
+            "deliveryAddresses"
+        ) or []:
+
+            address = delivery.get("address") or {}
+
+            location = (
+                address.get("addressLocality")
+                or address.get("region")
+                or address.get("countryName")
+            )
+
+            if location:
+                locations.append(str(location))
+
+    return list(dict.fromkeys(locations))
+
+
+# ------------------------------------------------------------
+# CPV CLASSIFICATION
+# ------------------------------------------------------------
+
+def extract_cpv_codes(tender):
+
+    codes = []
+
+    for item in tender.get("items") or []:
+
+        classification = (
+            item.get("classification") or {}
+        )
+
+        if classification.get("id"):
+            codes.append(
+                str(classification["id"])
+            )
+
+        for extra in item.get(
+            "additionalClassifications"
+        ) or []:
+
+            if extra.get("id"):
+                codes.append(str(extra["id"]))
+
+    return list(dict.fromkeys(codes))
+
+
+# ------------------------------------------------------------
+# TENDER DATA EXTRACTION
+# ------------------------------------------------------------
+
+def fetch_tenders():
+
+    data = request_tender_data()
 
     tenders = []
 
     for release in data.get("releases", []):
+
         tender = release.get("tender") or {}
 
         title = tender.get("title") or ""
@@ -41,16 +165,43 @@ def fetch_tenders():
         if not title.strip():
             continue
 
+        value, currency = extract_value(tender)
+
+        locations = extract_locations(tender)
+
+        cpv_codes = extract_cpv_codes(tender)
+
+        tender_period = (
+            tender.get("tenderPeriod") or {}
+        )
+
+        deadline = tender_period.get("endDate")
+
         tenders.append({
             "title": title,
             "description": description,
-            "ocid": release.get("ocid", "Unknown")
+            "service": description or None,
+            "ocid": release.get("ocid", "Unknown"),
+            "value": value,
+            "currency": currency,
+            "locations": locations,
+            "location": (
+                locations[0] if locations else None
+            ),
+            "cpv_codes": cpv_codes,
+            "deadline": deadline,
+            "certifications": None
         })
 
     return tenders
 
 
+# ------------------------------------------------------------
+# AI SEMANTIC RANKING
+# ------------------------------------------------------------
+
 def rank_tenders(tenders):
+
     if not tenders:
         return []
 
@@ -61,7 +212,8 @@ def rank_tenders(tenders):
     texts = [
         COMPANY_PROFILE
     ] + [
-        tender["title"] + ". " + tender["description"]
+        tender["title"] + ". "
+        + tender["description"]
         for tender in tenders
     ]
 
@@ -75,31 +227,51 @@ def rank_tenders(tenders):
         embeddings[1:]
     )[0].tolist()
 
+    results = []
+
     for tender, score in zip(tenders, scores):
-        tender["similarity"] = round(score * 100, 2)
+
+        results.append({
+            **tender,
+            "similarity": round(
+                score * 100, 2
+            )
+        })
 
     return sorted(
-        tenders,
-        key=lambda tender: tender["similarity"],
+        results,
+        key=lambda item: item["similarity"],
         reverse=True
     )
 
 
+# ------------------------------------------------------------
+# MAIN EXECUTION
+# ------------------------------------------------------------
+
 def main():
-    print("Fetching live UK government tenders...")
+
+    print("AI TENDER DATA ENRICHMENT")
 
     tenders = fetch_tenders()
+
     print("Tenders retrieved:", len(tenders))
 
-    ranked = rank_tenders(tenders)
+    if not tenders:
+        print("No tenders returned")
+        return
 
-    print("\nTOP 10 AI-MATCHED TENDERS")
+    for tender in tenders[:5]:
 
-    for tender in ranked[:10]:
-        print("---------------------------")
+        print("-" * 55)
         print("Title:", tender["title"])
-        print("Similarity:", tender["similarity"], "%")
-        print("OCID:", tender["ocid"])
+        print("Value:", tender["value"])
+        print("Currency:", tender["currency"])
+        print("Locations:", tender["locations"])
+        print("CPV:", tender["cpv_codes"])
+        print("Deadline:", tender["deadline"])
+
+    print("Data enrichment completed")
 
 
 if __name__ == "__main__":
