@@ -1,3 +1,35 @@
+"""AEGIS — Lesson 26: targeted security opportunity discovery.
+
+Run: python opportunity_discovery.py
+"""
+from __future__ import annotations
+
+from collections import Counter
+
+from company_tender_matcher import create_company, match_company_to_tenders
+from eligibility_engine import evaluate_eligibility
+from hybrid_relevance import assess_relevance
+from live_ai_matcher import fetch_tenders
+
+TARGET = "TARGET SECURITY CONTRACT"
+REVIEW = {
+    "SECURITY-RELATED - REVIEW",
+    "MANUAL REVIEW",
+    "MIXED SCOPE - REVIEW",
+    "RELEVANT CANDIDATE",
+}
+
+
+def as_dict(value):
+    """Accept dictionary results without inventing classification fields."""
+    return value if isinstance(value, dict) else {}
+
+
+def get_similarity(tender):
+    try:
+        return round(float(tender.get("similarity") or 0), 2)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def assess_security(tender):
@@ -62,49 +94,3 @@ def discover_opportunities(max_records=500, max_pages=5, days_back=90):
 
         opportunities.append({
             "title": tender.get("title") or "Untitled notice",
-            "ocid": tender.get("ocid") or "Unknown",
-            "similarity": get_similarity(tender),
-            "category": evidence.get("category") or "Not specified",
-            "relevance_decision": decision,
-            "guarding_matches": evidence.get("guarding_matches") or [],
-            "related_matches": evidence.get("related_matches") or [],
-            "service_groups": evidence.get("service_groups") or [],
-            "value": tender.get("value"),
-            "currency": tender.get("currency"),
-            "locations": tender.get("locations") or [],
-            "deadline": tender.get("deadline"),
-            "assessment": assessment,
-        })
-
-    opportunities.sort(
-        key=lambda item: (
-            item["relevance_decision"] == TARGET,
-            item["similarity"],
-        ),
-        reverse=True,
-    )
-
-    print("\nCLASSIFICATION SUMMARY")
-    print("Target security contracts:", counts[TARGET])
-    print("Security-related / manual review:", sum(counts[x] for x in REVIEW))
-    print("Not relevant:", counts["NOT RELEVANT"])
-
-    print("\nSECURITY OPPORTUNITIES FOR REVIEW")
-    for item in opportunities[:20]:
-        print("-" * 55)
-        print("Title:", item["title"])
-        print("Relevance:", item["relevance_decision"])
-        print("AI similarity:", f'{item["similarity"]}%')
-        print("Category:", item["category"])
-        print("Value:", item["value"], item["currency"] or "")
-        print("Deadline:", item["deadline"] or "Not published")
-        print("Preliminary eligibility:", item["assessment"].get("decision", "Not assessed"))
-        print("OCID:", item["ocid"])
-
-    print("\nTotal shortlisted:", len(opportunities))
-    print("Note: AI screening is not an approved Bid / No-Bid decision.")
-    return opportunities
-
-
-if __name__ == "__main__":
-    discover_opportunities()
