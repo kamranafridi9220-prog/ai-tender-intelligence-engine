@@ -1,88 +1,109 @@
 
-# AI Tender Intelligence Engine
-# Lesson 17: Improved Opportunity Discovery
 
-from company_tender_matcher import (
-    create_company,
-    match_company_to_tenders
-)
-
-from live_ai_matcher import fetch_tenders
-from eligibility_engine import evaluate_eligibility
-from main import classify_tender
+def assess_security(tender):
+    """Use the existing evidence-based hybrid classifier."""
+    result = as_dict(assess_relevance(tender))
+    decision = str(result.get("decision") or "MANUAL REVIEW").strip().upper()
+    if decision != TARGET and decision not in REVIEW:
+        decision = "NOT RELEVANT"
+    return result, decision
 
 
-def discover_opportunities():
+def build_eligibility_input(tender):
+    return {
+        "title": tender.get("title") or "",
+        "service": " ".join(
+            str(value)
+            for value in (
+                tender.get("title") or "",
+                tender.get("description") or "",
+            )
+            if value
+        ),
+        # Broad UK region codes do not establish a company's local coverage.
+        "location": tender.get("location"),
+        "value": tender.get("value"),
+        "certifications": tender.get("certifications"),
+    }
+
+
+def discover_opportunities(max_records=500, max_pages=5, days_back=90):
     company = create_company()
+    print("AI OPPORTUNITY DISCOVERY ENGINE — LESSON 26")
+    print("Company:", getattr(company, "name", "Company profile"))
 
-    print("AI OPPORTUNITY DISCOVERY ENGINE")
-    print("Company:", company.name)
-
-    tenders = fetch_tenders()
-    print("Tender releases retrieved:", len(tenders))
-
-    ranked = match_company_to_tenders(
-        company,
-        tenders
+    tenders = fetch_tenders(
+        max_records=max_records,
+        security_only=True,
+        max_pages=max_pages,
+        days_back=days_back,
     )
+    print("Security discovery leads retrieved:", len(tenders))
 
+    if not tenders:
+        print("No discovery leads returned. Check API coverage and date window.")
+        return []
+
+    # Preserve the company matching model while letting the hybrid classifier
+    # decide which notices are actually security-related.
+    ranked = match_company_to_tenders(company, tenders)
     opportunities = []
+    counts = Counter()
 
     for tender in ranked:
-        category = classify_tender(
-            tender["title"],
-            tender["description"]
-        )
-
-        semantic_score = tender["similarity"]
-
-        # Keep candidates for review, not confirmed matches.
-        if (
-            category == "UNCLASSIFIED"
-            and semantic_score < 30
-        ):
+        evidence, decision = assess_security(tender)
+        counts[decision] += 1
+        if decision != TARGET and decision not in REVIEW:
             continue
 
-        structured_tender = {
-            "title": tender["title"],
-            "service": (
-                tender["title"] + ". "
-                + tender["description"]
-            ),
-            "location": None,
-            "value": None,
-            "certifications": None
-        }
-
-        assessment = evaluate_eligibility(
-            company,
-            structured_tender
-        )
+        # Eligibility is preliminary and must not override scope classification.
+        assessment = evaluate_eligibility(company, build_eligibility_input(tender))
+        assessment = as_dict(assessment)
 
         opportunities.append({
-            "title": tender["title"],
-            "ocid": tender["ocid"],
-            "similarity": semantic_score,
-            "category": category,
-            "assessment": assessment
+            "title": tender.get("title") or "Untitled notice",
+            "ocid": tender.get("ocid") or "Unknown",
+            "similarity": get_similarity(tender),
+            "category": evidence.get("category") or "Not specified",
+            "relevance_decision": decision,
+            "guarding_matches": evidence.get("guarding_matches") or [],
+            "related_matches": evidence.get("related_matches") or [],
+            "service_groups": evidence.get("service_groups") or [],
+            "value": tender.get("value"),
+            "currency": tender.get("currency"),
+            "locations": tender.get("locations") or [],
+            "deadline": tender.get("deadline"),
+            "assessment": assessment,
         })
 
     opportunities.sort(
-        key=lambda item: item["similarity"],
-        reverse=True
+        key=lambda item: (
+            item["relevance_decision"] == TARGET,
+            item["similarity"],
+        ),
+        reverse=True,
     )
 
-    print("\nCANDIDATE OPPORTUNITIES FOR REVIEW")
+    print("\nCLASSIFICATION SUMMARY")
+    print("Target security contracts:", counts[TARGET])
+    print("Security-related / manual review:", sum(counts[x] for x in REVIEW))
+    print("Not relevant:", counts["NOT RELEVANT"])
 
-    for item in opportunities[:10]:
-        print("-" * 50)
+    print("\nSECURITY OPPORTUNITIES FOR REVIEW")
+    for item in opportunities[:20]:
+        print("-" * 55)
         print("Title:", item["title"])
-        print("AI similarity:", item["similarity"], "%")
+        print("Relevance:", item["relevance_decision"])
+        print("AI similarity:", f'{item["similarity"]}%')
         print("Category:", item["category"])
-        print("Decision:", item["assessment"]["decision"])
+        print("Value:", item["value"], item["currency"] or "")
+        print("Deadline:", item["deadline"] or "Not published")
+        print("Preliminary eligibility:", item["assessment"].get("decision", "Not assessed"))
         print("OCID:", item["ocid"])
 
-    print("\nTotal candidates:", len(opportunities))
+    print("\nTotal shortlisted:", len(opportunities))
+    print("Note: AI screening is not an approved Bid / No-Bid decision.")
+    return opportunities
 
 
 if __name__ == "__main__":
