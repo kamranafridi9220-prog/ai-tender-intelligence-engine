@@ -105,3 +105,5 @@ def discover_opportunities(max_records=500, max_pages=5, days_back=90):
             "deadline": tender.get("deadline"),
             "cpv_codes": tender.get("cpv_codes") or [],
         })
+if __name__ == "__main__":
+    discover_opportunities()
